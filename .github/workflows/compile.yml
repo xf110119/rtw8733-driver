@@ -13,10 +13,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential bc curl gcc-aarch64-linux-gnu
 
-      # 关键修改：从 OpenIPC 相关仓库克隆驱动源码
       - name: Clone Driver Source
         run: |
-          # 如果这个项目是 https://github.com/OpenIPC/rtl8733bs
+          # 彻底清理当前目录，确保 git clone . 能成功
+          find . -maxdepth 1 ! -name '.' ! -name '..' -exec rm -rf {} +
           git clone --depth 1 https://github.com/libc0607/rtl8733bs-20250521.git .
 
       - name: Setup Headers
@@ -27,11 +27,14 @@ jobs:
 
       - name: Build
         run: |
-          # 编译命令（注意：如果源码目录里有 Makefile，直接运行）
+          # 针对 libc0607 的仓库进行交叉编译
+          # 如果源码根目录有 Makefile，这行命令会生效
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -C /lib/modules/6.1.141-rk35xx-ophub/build M=$(pwd) modules
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: rtl8733bs-special-driver
-          path: "*.ko" # 匹配所有生成的内核模块
+          path: |
+            *.ko
+            *.bin
