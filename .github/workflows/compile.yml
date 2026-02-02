@@ -5,11 +5,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Source
-        uses: actions/checkout@v4 # 升级到 v4
-        with:
-          repository: lwfinger/rtw8852bs
-          ref: main
+      # 第一步：直接克隆源码 (不使用 checkout action 以免路径错误)
+      - name: Clone Source
+        run: |
+          git clone --depth 1 https://github.com/lwfinger/rtw8852bs.git .
 
       - name: Install Tools
         run: |
@@ -24,11 +23,11 @@ jobs:
 
       - name: Build
         run: |
-          # 使用交叉编译器编译 arm64 驱动
+          # 指定交叉编译器和内核路径进行编译
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -C /lib/modules/6.1.141-rk35xx-ophub/build M=$(pwd) modules
 
       - name: Upload
-        uses: actions/upload-artifact@v4 # 升级到 v4
+        uses: actions/upload-artifact@v4
         with:
           name: wifi-driver-rtw8733
           path: 8852bs.ko
