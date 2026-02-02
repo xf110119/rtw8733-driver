@@ -5,49 +5,42 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # 1. 下载你仓库里的代码和刚才上传的 tar.gz
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 2. 安装必要编译工具
       - name: Install Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bc gcc-aarch64-linux-gnu unzip
+          sudo apt-get install -y build-essential bc gcc-aarch64-linux-gnu unzip libssl-dev libelf-dev
 
-      # 3. 配置本地头文件路径
       - name: Setup Local Headers
         run: |
-          # 创建存放头文件的目录
           sudo mkdir -p /usr/src/
-          # 解压上传的压缩包
           sudo tar -xzf armbian-headers.tar.gz -C /usr/src/
-          
-          # 验证解压后的目录名 (确保路径正确)
-          ls -R /usr/src/
-          
-          # 创建内核模块编译所需的 build 软链接
           sudo mkdir -p /lib/modules/6.1.141-rk35xx-ophub/
           sudo ln -s /usr/src/linux-headers-6.1.141-rk35xx-ophub /lib/modules/6.1.141-rk35xx-ophub/build
 
-      # 4. 下载驱动源码 (libc0607 2025版)
+      # 关键步骤：修复 modpost 架构冲突
+      - name: Fix Headers Scripts
+        run: |
+          KDIR="/lib/modules/6.1.141-rk35xx-ophub/build"
+          # 清理旧的 ARM64 工具并重新编译为 x86 工具
+          sudo make -C $KDIR scripts
+
       - name: Clone Driver Source
         run: |
-          # 避开 git 权限，直接下 zip
           curl -L https://github.com/libc0607/rtl8733bs-20250521/archive/refs/heads/main.zip -o source.zip
           unzip source.zip
-          # 将解压出的内容移到当前目录（不带外层文件夹）
           cp -r rtl8733bs-20250521-main/* .
 
-      # 5. 执行交叉编译
       - name: Build
         run: |
-          # 使用 aarch64 交叉编译器，指向刚才配置好的 build 目录
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -C /lib/modules/6.1.141-rk35xx-ophub/build M=$(pwd) modules
+          KDIR="/lib/modules/6.1.141-rk35xx-ophub/build"
+          # 使用 KERNEL_SRC 指向头文件目录进行编译
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -C $KDIR M=$(pwd) modules
 
-      # 6. 上传生成的驱动文件 (.ko)
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: rtl8733bs-driver-result
+          name: rtl8733bs-driver
           path: "*.ko"
