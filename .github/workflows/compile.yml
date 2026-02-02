@@ -1,22 +1,23 @@
-name: Build_RTL8733BS
+name: Build_RTL8733BS_Special
 on: [workflow_dispatch]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # 第一步：直接下载源码压缩包，彻底避开 Git 权限问题
-      - name: Download Source Zip
-        run: |
-          curl -L https://github.com/lwfinger/rtw8852bs/archive/refs/heads/main.zip -o source.zip
-          unzip source.zip
-          # 将解压后的内容移动到当前目录，方便后续编译
-          mv rtw8852bs-main/* .
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Install Tools
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential bc curl gcc-aarch64-linux-gnu
+
+      # 关键修改：从 OpenIPC 相关仓库克隆驱动源码
+      - name: Clone Driver Source
+        run: |
+          # 如果这个项目是 https://github.com/OpenIPC/rtl8733bs
+          git clone --depth 1 https://github.com/libc0607/rtl8733bs-20250521.git .
 
       - name: Setup Headers
         run: |
@@ -26,11 +27,11 @@ jobs:
 
       - name: Build
         run: |
-          # 编译驱动
+          # 编译命令（注意：如果源码目录里有 Makefile，直接运行）
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -C /lib/modules/6.1.141-rk35xx-ophub/build M=$(pwd) modules
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: wifi-driver-rtw8733
-          path: 8852bs.ko
+          name: rtl8733bs-special-driver
+          path: "*.ko" # 匹配所有生成的内核模块
