@@ -1,4 +1,4 @@
-name: Build_RTL8733BS_Final_Compatible
+name: Build_RTL8733BS_Final_Ultimate
 on: [workflow_dispatch]
 
 jobs:
@@ -9,7 +9,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 2. 安装必要工具
+      # 2. 安装必要工具（libssl 和 libelf 是内核脚本必需的）
       - name: Install Tools
         run: |
           sudo apt-get update
@@ -23,25 +23,27 @@ jobs:
           sudo mkdir -p /lib/modules/6.1.141-rk35xx-ophub/
           sudo ln -s /usr/src/linux-headers-6.1.141-rk35xx-ophub /lib/modules/6.1.141-rk35xx-ophub/build
 
-      # 4. 彻底修复架构冲突 (关键步骤)
+      # 4. 彻底清除旧架构残留并重建工具 (解决 ELF 格式错误的关键)
       - name: Force Rebuild Scripts
         run: |
           KDIR="/lib/modules/6.1.141-rk35xx-ophub/build"
           
-          # 将你从盒子提取的权威配置覆盖进去
+          # 放入你从盒子提取的权威配置
           sudo cp config_fixed $KDIR/.config
           
           cd $KDIR
-          # 暴力删除所有 ARM64 格式的可执行文件，防止 "Exec format error"
-          sudo find scripts/ -type f -executable -exec rm -f {} +
+          # 深度清理：删除所有 ARM64 格式的可执行文件和中间对象文件
+          sudo find . -type f -executable -exec rm -f {} +
+          sudo find . -name "*.o" -delete
+          sudo find . -name "*.o.cmd" -delete
           
-          # 告诉内核忽略所有提问，自动生成适合当前环境的编译工具
-          # 这里 ARCH 依然是 arm64，但 HOSTCC 会自动使用系统的 x86 编译器
+          # 重新编译适合当前 x86 机器运行的内核工具 (如 conf, modpost, fixdep)
+          # yes "" 用于自动跳过任何可能出现的内核配置询问
           yes "" | sudo make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
           sudo make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- scripts
           sudo make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- modules_prepare
 
-      # 5. 下载并准备驱动源码
+      # 5. 下载驱动源码 (libc0607 2025版本)
       - name: Clone Driver Source
         run: |
           curl -L https://github.com/libc0607/rtl8733bs-20250521/archive/refs/heads/main.zip -o source.zip
@@ -52,12 +54,12 @@ jobs:
       - name: Build Module
         run: |
           KDIR="/lib/modules/6.1.141-rk35xx-ophub/build"
-          # 开始交叉编译，M=$(pwd) 指向当前驱动源码目录
+          # ARCH=arm64 指定目标架构，CROSS_COMPILE 指定交叉编译器
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -C $KDIR M=$(pwd) modules
 
-      # 7. 上传驱动
+      # 7. 上传驱动文件 (.ko)
       - name: Upload Result
         uses: actions/upload-artifact@v4
         with:
-          name: rtl8733bs-6.1.141-driver
+          name: rtl8733bs-driver-fixed
           path: "*.ko"
