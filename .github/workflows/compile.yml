@@ -1,0 +1,39 @@
+name: Build RTL8733BS Driver
+
+on:
+  workflow_dispatch: # 手动点击运行
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Driver Source
+        uses: actions/checkout@v3
+        with:
+          repository: lwfinger/rtw8852bs
+          ref: main
+
+      - name: Install Build Essentials
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc curl
+
+      - name: Download Ophub Kernel Headers
+        run: |
+          # 请根据你 uname -r 的结果修改下面的版本号。这里以 6.1.141 为例
+          # 你可以从 Ophub 的 Release 页面找到对应的 .deb 链接
+          KERNEL_VER="6.1.141-rk35xx-ophub"
+          URL="https://github.com/ophub/amlogic-s9xxx-armbian/releases/download/Armbian_rk35xx_v2026.01/linux-headers-6.1.141-rk35xx-ophub_2026.01_arm64.deb"
+          curl -L $URL -o headers.deb
+          sudo dpkg -i headers.deb
+
+      - name: Compile Driver
+        run: |
+          KERNEL_DIR="/lib/modules/6.1.141-rk35xx-ophub/build"
+          make ARCH=arm64 CROSS_COMPILE= -C $KERNEL_DIR M=$(pwd) modules
+
+      - name: Upload Result
+        uses: actions/upload-artifact@v3
+        with:
+          name: rtw8733-driver
+          path: 8852bs.ko
