@@ -1,40 +1,63 @@
-name: Build_RTL8733BS_Special
+name: Build_RTL8733BS_Final
 on: [workflow_dispatch]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # 1. 初始化环境
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 2. 安装交叉编译器和必要工具
       - name: Install Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bc curl gcc-aarch64-linux-gnu
+          sudo apt-get install -y build-essential bc wget curl gcc-aarch64-linux-gnu unzip
 
+      # 3. 下载驱动源码 (使用 libc0607 的 2025 最新版)
       - name: Clone Driver Source
         run: |
-          # 彻底清理当前目录，确保 git clone . 能成功
+          # 彻底清理当前目录
           find . -maxdepth 1 ! -name '.' ! -name '..' -exec rm -rf {} +
-          git clone --depth 1 https://github.com/libc0607/rtl8733bs-20250521.git .
+          # 直接下载 Zip 压缩包最稳，不走 Git 协议
+          curl -L https://github.com/libc0607/rtl8733bs-20250521/archive/refs/heads/main.zip -o source.zip
+          unzip source.zip
+          mv rtl8733bs-20250521-main/* .
 
+      # 4. 获取并安装内核头文件 (自动匹配最新版)
       - name: Setup Headers
         run: |
-          URL="https://github.com/ophub/amlogic-s9xxx-armbian/releases/download/Armbian_rk35xx_v2026.01/linux-headers-6.1.141-rk35xx-ophub_2026.01_arm64.deb"
-          curl -L $URL -o headers.deb
+          # 动态获取 Ophub 仓库中最新的 arm64 Headers 下载链接
+          URL=$(curl -s https://api.github.com/repos/ophub/amlogic-s9xxx-armbian/releases | grep "browser_download_url" | grep "linux-headers" | grep "arm64" | head -n 1 | cut -d '"' -f 4)
+          
+          if [ -z "$URL" ]; then
+            echo "错误：无法在 Ophub 仓库找到 Headers 文件。"
+            exit 1
+          fi
+          
+          echo "正在下载头文件: $URL"
+          wget -q "$URL" -O headers.deb
           sudo dpkg -i headers.deb
+          
+          # 获取安装后的确切内核版本号
+          KVER=$(ls /lib/modules | grep ophub | head -n 1)
+          echo "DETECTED_KVER=$KVER" >> $GITHUB_ENV
+          echo "检测到内核版本: $KVER"
 
+      # 5. 执行交叉编译
       - name: Build
         run: |
-          # 针对 libc0607 的仓库进行交叉编译
-          # 如果源码根目录有 Makefile，这行命令会生效
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -C /lib/modules/6.1.141-rk35xx-ophub/build M=$(pwd) modules
+          # 使用检测到的内核版本路径
+          KERNEL_DIR="/lib/modules/${{ env.DETECTED_KVER }}/build"
+          echo "正在编译，内核路径: $KERNEL_DIR"
+          
+          # 交叉编译命令
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -C $KERNEL_DIR M=$(pwd) modules
 
-      - name: Upload
+      # 6. 上传生成的驱动文件
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: rtl8733bs-special-driver
-          path: |
-            *.ko
-            *.bin
+          name: rtl8733bs-driver-package
+          path: "*.ko"
