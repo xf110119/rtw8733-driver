@@ -5,10 +5,13 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # 第一步：直接克隆源码 (不使用 checkout action 以免路径错误)
-      - name: Clone Source
+      # 第一步：直接下载源码压缩包，彻底避开 Git 权限问题
+      - name: Download Source Zip
         run: |
-          git clone --depth 1 https://github.com/lwfinger/rtw8852bs.git .
+          curl -L https://github.com/lwfinger/rtw8852bs/archive/refs/heads/main.zip -o source.zip
+          unzip source.zip
+          # 将解压后的内容移动到当前目录，方便后续编译
+          mv rtw8852bs-main/* .
 
       - name: Install Tools
         run: |
@@ -23,7 +26,7 @@ jobs:
 
       - name: Build
         run: |
-          # 指定交叉编译器和内核路径进行编译
+          # 编译驱动
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -C /lib/modules/6.1.141-rk35xx-ophub/build M=$(pwd) modules
 
       - name: Upload
