@@ -1,4 +1,4 @@
-name: Build_RTL8733BS_Final_Local
+name: Build_RTL8733BS_Break_Loop
 on: [workflow_dispatch]
 
 jobs:
@@ -20,18 +20,19 @@ jobs:
           sudo mkdir -p /lib/modules/6.1.141-rk35xx-ophub/
           sudo ln -s /usr/src/linux-headers-6.1.141-rk35xx-ophub /lib/modules/6.1.141-rk35xx-ophub/build
 
-      # 关键步骤：修复并准备内核配置
-      - name: Fix Headers Scripts
+      - name: Force Fix Headers
         run: |
           KDIR="/lib/modules/6.1.141-rk35xx-ophub/build"
+          # 1. 放入你提取的配置
+          sudo cp config_fixed $KDIR/.config
+          
           cd $KDIR
-          # 如果没有 .config，尝试从现有的备份创建
-          if [ ! -f .config ]; then
-            echo "未发现 .config，正在尝试生成默认配置..."
-            sudo make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- defconfig
-          fi
-          # 重新编译编译工具 (modpost 等)
-          sudo make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- scripts
+          # 2. 暴力清理旧工具，防止架构冲突
+          sudo make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- scripts clean
+          
+          # 3. 核心准备命令：这步通常不会循环，因为它只做最基础的链接准备
+          # 加上 yes "" | 自动回答所有潜在的提问，防止卡死
+          yes "" | sudo make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- modules_prepare
 
       - name: Clone Driver Source
         run: |
@@ -42,11 +43,11 @@ jobs:
       - name: Build
         run: |
           KDIR="/lib/modules/6.1.141-rk35xx-ophub/build"
-          # 开始编译驱动模块
+          # 开始编译驱动，忽略一些不致命的警告
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -C $KDIR M=$(pwd) modules
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: rtl8733bs-driver
+          name: rtl8733bs-driver-final
           path: "*.ko"
