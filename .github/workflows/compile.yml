@@ -1,18 +1,21 @@
-name: Build_RTL8733BS_Break_Loop
+name: Build_RTL8733BS_Final_Compatible
 on: [workflow_dispatch]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # 1. 下载仓库内容 (包含 armbian-headers.tar.gz 和 config_fixed)
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 2. 安装必要工具
       - name: Install Tools
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential bc gcc-aarch64-linux-gnu unzip libssl-dev libelf-dev
 
+      # 3. 部署头文件目录
       - name: Setup Local Headers
         run: |
           sudo mkdir -p /usr/src/
@@ -20,34 +23,41 @@ jobs:
           sudo mkdir -p /lib/modules/6.1.141-rk35xx-ophub/
           sudo ln -s /usr/src/linux-headers-6.1.141-rk35xx-ophub /lib/modules/6.1.141-rk35xx-ophub/build
 
-      - name: Force Fix Headers
+      # 4. 彻底修复架构冲突 (关键步骤)
+      - name: Force Rebuild Scripts
         run: |
           KDIR="/lib/modules/6.1.141-rk35xx-ophub/build"
-          # 1. 放入你提取的配置
+          
+          # 将你从盒子提取的权威配置覆盖进去
           sudo cp config_fixed $KDIR/.config
           
           cd $KDIR
-          # 2. 暴力清理旧工具，防止架构冲突
-          sudo make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- scripts clean
+          # 暴力删除所有 ARM64 格式的可执行文件，防止 "Exec format error"
+          sudo find scripts/ -type f -executable -exec rm -f {} +
           
-          # 3. 核心准备命令：这步通常不会循环，因为它只做最基础的链接准备
-          # 加上 yes "" | 自动回答所有潜在的提问，防止卡死
-          yes "" | sudo make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- modules_prepare
+          # 告诉内核忽略所有提问，自动生成适合当前环境的编译工具
+          # 这里 ARCH 依然是 arm64，但 HOSTCC 会自动使用系统的 x86 编译器
+          yes "" | sudo make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
+          sudo make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- scripts
+          sudo make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- modules_prepare
 
+      # 5. 下载并准备驱动源码
       - name: Clone Driver Source
         run: |
           curl -L https://github.com/libc0607/rtl8733bs-20250521/archive/refs/heads/main.zip -o source.zip
           unzip source.zip
           cp -r rtl8733bs-20250521-main/* .
 
-      - name: Build
+      # 6. 交叉编译驱动
+      - name: Build Module
         run: |
           KDIR="/lib/modules/6.1.141-rk35xx-ophub/build"
-          # 开始编译驱动，忽略一些不致命的警告
+          # 开始交叉编译，M=$(pwd) 指向当前驱动源码目录
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -C $KDIR M=$(pwd) modules
 
-      - name: Upload
+      # 7. 上传驱动
+      - name: Upload Result
         uses: actions/upload-artifact@v4
         with:
-          name: rtl8733bs-driver-final
+          name: rtl8733bs-6.1.141-driver
           path: "*.ko"
