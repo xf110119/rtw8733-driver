@@ -20,12 +20,18 @@ jobs:
           sudo mkdir -p /lib/modules/6.1.141-rk35xx-ophub/
           sudo ln -s /usr/src/linux-headers-6.1.141-rk35xx-ophub /lib/modules/6.1.141-rk35xx-ophub/build
 
-      # 关键步骤：修复 modpost 架构冲突
+      # 关键步骤：修复并准备内核配置
       - name: Fix Headers Scripts
         run: |
           KDIR="/lib/modules/6.1.141-rk35xx-ophub/build"
-          # 清理旧的 ARM64 工具并重新编译为 x86 工具
-          sudo make -C $KDIR scripts
+          cd $KDIR
+          # 如果没有 .config，尝试从现有的备份创建
+          if [ ! -f .config ]; then
+            echo "未发现 .config，正在尝试生成默认配置..."
+            sudo make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- defconfig
+          fi
+          # 重新编译编译工具 (modpost 等)
+          sudo make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- scripts
 
       - name: Clone Driver Source
         run: |
@@ -36,7 +42,7 @@ jobs:
       - name: Build
         run: |
           KDIR="/lib/modules/6.1.141-rk35xx-ophub/build"
-          # 使用 KERNEL_SRC 指向头文件目录进行编译
+          # 开始编译驱动模块
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -C $KDIR M=$(pwd) modules
 
       - name: Upload
