@@ -1,63 +1,53 @@
-name: Build_RTL8733BS_Final
+name: Build_RTL8733BS_Final_Local
 on: [workflow_dispatch]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # 1. 初始化环境
+      # 1. 下载你仓库里的代码和刚才上传的 tar.gz
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 2. 安装交叉编译器和必要工具
+      # 2. 安装必要编译工具
       - name: Install Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bc wget curl gcc-aarch64-linux-gnu unzip
+          sudo apt-get install -y build-essential bc gcc-aarch64-linux-gnu unzip
 
-      # 3. 下载驱动源码 (使用 libc0607 的 2025 最新版)
+      # 3. 配置本地头文件路径
+      - name: Setup Local Headers
+        run: |
+          # 创建存放头文件的目录
+          sudo mkdir -p /usr/src/
+          # 解压上传的压缩包
+          sudo tar -xzf armbian-headers.tar.gz -C /usr/src/
+          
+          # 验证解压后的目录名 (确保路径正确)
+          ls -R /usr/src/
+          
+          # 创建内核模块编译所需的 build 软链接
+          sudo mkdir -p /lib/modules/6.1.141-rk35xx-ophub/
+          sudo ln -s /usr/src/linux-headers-6.1.141-rk35xx-ophub /lib/modules/6.1.141-rk35xx-ophub/build
+
+      # 4. 下载驱动源码 (libc0607 2025版)
       - name: Clone Driver Source
         run: |
-          # 彻底清理当前目录
-          find . -maxdepth 1 ! -name '.' ! -name '..' -exec rm -rf {} +
-          # 直接下载 Zip 压缩包最稳，不走 Git 协议
+          # 避开 git 权限，直接下 zip
           curl -L https://github.com/libc0607/rtl8733bs-20250521/archive/refs/heads/main.zip -o source.zip
           unzip source.zip
-          mv rtl8733bs-20250521-main/* .
-
-      # 4. 获取并安装内核头文件 (自动匹配最新版)
-      - name: Setup Headers
-        run: |
-          # 动态获取 Ophub 仓库中最新的 arm64 Headers 下载链接
-          URL=$(curl -s https://api.github.com/repos/ophub/amlogic-s9xxx-armbian/releases | grep "browser_download_url" | grep "linux-headers" | grep "arm64" | head -n 1 | cut -d '"' -f 4)
-          
-          if [ -z "$URL" ]; then
-            echo "错误：无法在 Ophub 仓库找到 Headers 文件。"
-            exit 1
-          fi
-          
-          echo "正在下载头文件: $URL"
-          wget -q "$URL" -O headers.deb
-          sudo dpkg -i headers.deb
-          
-          # 获取安装后的确切内核版本号
-          KVER=$(ls /lib/modules | grep ophub | head -n 1)
-          echo "DETECTED_KVER=$KVER" >> $GITHUB_ENV
-          echo "检测到内核版本: $KVER"
+          # 将解压出的内容移到当前目录（不带外层文件夹）
+          cp -r rtl8733bs-20250521-main/* .
 
       # 5. 执行交叉编译
       - name: Build
         run: |
-          # 使用检测到的内核版本路径
-          KERNEL_DIR="/lib/modules/${{ env.DETECTED_KVER }}/build"
-          echo "正在编译，内核路径: $KERNEL_DIR"
-          
-          # 交叉编译命令
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -C $KERNEL_DIR M=$(pwd) modules
+          # 使用 aarch64 交叉编译器，指向刚才配置好的 build 目录
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -C /lib/modules/6.1.141-rk35xx-ophub/build M=$(pwd) modules
 
-      # 6. 上传生成的驱动文件
-      - name: Upload Artifacts
+      # 6. 上传生成的驱动文件 (.ko)
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: rtl8733bs-driver-package
+          name: rtl8733bs-driver-result
           path: "*.ko"
